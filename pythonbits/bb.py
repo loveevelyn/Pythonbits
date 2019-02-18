@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 from builtins import *  # noqa: F401, F403
@@ -30,6 +30,8 @@ from .submission import (Submission, form_field, finalize,
 from .tracker import Tracker
 from .scene import is_scene_crc, query_scene_fname
 
+reload(sys)
+sys.setdefaultencoding('utf-8')
 
 def format_tag(tag):
     tag = unidecode(tag)
@@ -318,32 +320,57 @@ class VideoSubmission(BbSubmission):
                 return 'x264'
             else:
                 return 'H.264'
+        if video_track['codec'] in ('V_MPEGH/ISO/HEVC', 'HEVC'):
+            if ('writing_library' in video_track and
+                    'x265' in video_track['writing_library']):
+                return 'x265'
+            else:
+                return 'H.265'
         elif video_track['codec'] == 'XVID':
             return 'XVid'
+	elif video_track['codec'] == 'DIVX':
+            return 'DivX'
+	elif video_track['codec'] == 'V_VP9':
+            return 'VP9'
+        elif video_track['codec'] == 'WVC1':
+            return 'VC-1'
         else:
             raise Exception("Unknown or unsupported video codec",
                             video_track['codec'],
                             video_track['writing_library'])
 
     def _render_audio_codec(self):
-        audio_codecs = ('AC3', 'DTS', 'FLAC', 'AAC', 'MP3')
+        audio_codecs = ('Dolby Atmos', 'AC3', 'DTS', 'FLAC', 'AAC', 'MP3', 'MP2')
 
         audio_tracks = self['tracks']['audio']
         audio_track = audio_tracks[0]  # main audio track
+
+        if audio_track['codec'] == 'DTS-HD':
+            if ('format_profile' in audio_track and
+                    audio_track['format_profile'] == 'X / MA / Core'):
+                return 'DTS:X'
+            return 'DTS-HD'
 
         for c in audio_codecs:
             if audio_track['codec'].startswith(c):
                 c = c.replace('AC3', 'AC-3')
                 return c
 
+        if audio_track['codec'] == 'Atmos / TrueHD':
+            return 'Dolby Atmos'
+
         if audio_track['codec'] == 'MPA1L3':
             return 'MP3'
 
+        if audio_track['codec'] == 'MPA1L2':
+            return 'MP2'
+        if audio_track['codec'] == 'A_AAC':
+            return 'AAC'
         raise Exception("Unknown or unsupported audio codec",
                         audio_track['codec'])
 
     def _render_resolution(self):
-        resolutions = ('1080p', '720p', '1080i', '720i', '480p', '480i', 'SD')
+        resolutions = ('2160p', '1080p', '720p', '1080i', '720i', '480p', '480i', 'SD')
 
         # todo: replace with regex?
         # todo: compare result with mediainfo
@@ -364,12 +391,17 @@ class VideoSubmission(BbSubmission):
 
     def _render_additional(self):
         additional = []
+        video_track = self['tracks']['video']
         audio_tracks = self['tracks']['audio']
         text_tracks = self['tracks']['text']
+
+        if 'color_primaries' in video_track and 'BT.2020' in video_track['color_primaries']:
+            additional.append('HDR10')
 
         for track in audio_tracks[1:]:
             if 'title' in track and 'commentary' in track['title'].lower():
                 additional.append('w. Commentary')
+                break
 
         if text_tracks:
             additional.append('w. Subtitles')
@@ -387,6 +419,9 @@ class VideoSubmission(BbSubmission):
 
         if self['guess'].get('proper_count') and self['scene']:
             additional.insert(0, 'PROPER')
+
+        if 'other' in self['guess'] and 'Remux' in self['guess']['other']:
+            additional.insert(0, 'REMUX')
 
         return additional
 
@@ -493,14 +528,9 @@ class TvSubmission(VideoSubmission):
             )
 
             def episode_fmt(e):
-                if not e['imdb_id']:
-                    return bb.link(e['title'], e['url']) + "\n"
+                return bb.link(e['title'], e['url']) + "\n"
 
-                rating, votes = i.get_rating(e['imdb_id'])
-                return (bb.link(e['title'], e['url']) + "\n" +
-                        bb.s1(bb.format_rating(*rating)))
-
-            description += "[b]Episodes[/b]:\n" + bb.list(
+            description += "[b]Episodes[/b]:\n"+ bb.list(
                 map(episode_fmt, s['episodes']), style=1)
 
         return description
